@@ -282,21 +282,44 @@ async def uget_command(command: DelegateCommand):
 
     }
 
-    user: users.User = command.user if username == None else 
+    # Obtain the settings of the user whether or not they are online.
+    # Do it in a way such that it is cached, hence the long function below.
+    users_settings = command.instance.users.get_user_settings(
+        command.user.username if username == None else username
+    )
 
     for setting in settings:
+        if (username != None):
 
-        if (setting[0] in [SettingQualifiers.])
+            # If not operating on themselves and trying to access private settings
+            # disallow them from doing so, by yielding an error.
+            # Stating which settings were private is NOT needed, since it is readily apparent.
+            if (setting[0] in [SettingQualifiers.Private, SettingQualifiers.ImmutablePrivate]):
+                await command.connection.code(SettingCodes.Errors.Private)
+                return
 
         # Settings that do not exist are going to be None/null
-        if (setting not in user.settings.keys()):
+        if (setting not in users_settings):
             result[setting] = None
             continue
+        
+        # Store our setting value in our results
+        result[setting] = users_settings[setting]
 
-        result[setting] = user.settings[setting]
 
+    # Send back the settings that were received.
+    await command.connection.code(UserCodes.Success.Settings, {
+        "username": username,
+        "settings": result
+    })
+
+
+# Deprecated
 async def upriv_command(command: DelegateCommand):
     pass
+
+
+
 
 async def frequest_command(command: DelegateCommand):
     pass

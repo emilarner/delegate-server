@@ -29,6 +29,7 @@ class UserCodes:
         Logout = 102
         MessageInfo = 103
         TwoFactor = 104
+        Settings = 105
 
     class Errors:
         PasswordIncorrect = -100
