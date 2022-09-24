@@ -1,9 +1,48 @@
+
 # delegate-server
-A Delegate server implementation in Python.
 
+A Delegate server implementation in Python. 
+[Not finished, not for production purposes as of now]
 
-not finished yet 
+This program will likely not run, so don't even try to. It is in debugging and development mode right now, meaning that the database and various other configurations are tailored specifically for our development team. Aside from that, it is extremely buggy and unpolished. 
 
-- users are almost implemented
-- only thing left are channels
-- then maybe streams, but those are just extensions of user and channel concepts.
+## Phases
+
+Due to the nature of Delegate, it is a very large project, especially for its limited number of members actively developing it. For this reason, the development of the Delegate server implementation is broken up into various phases, in order to make the workload manageable.
+
+We are currently **almost wrapping up **Phase 1**.**
+
+Phase 1:
+- User implementation
+- User settings
+- User subscriptions
+- User Friends
+- Server constants
+- Basic server code and connection abstractions
+- Commands & Command abstractions
+- Command regulation abstractions
+- Setting regulation abstractions
+
+Phase 2:
+- Channel implementation
+- Subchannel implementation
+- Roles & Permissions
+	- Channels
+	- Subchannels
+- Channel Settings
+	- Channels
+	- Subchannels
+	- User-Channel
+	- User-Subchannel
+	
+Phase 3:
+- HTTP endpoints
+	- Channel & Subchannel webhooks
+	- Channel querying
+	- Server querying
+	- User querying
+- User 2FA implementation
+- Implementation of User and Channel streams
+- Code cleanup
+- Finalization
+- Done (hopefully?)
