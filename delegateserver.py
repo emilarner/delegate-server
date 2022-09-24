@@ -139,7 +139,7 @@ class DelegateServer:
                 if (command.command in commands.primitive_commands):
                     # Initial sign in
                     if (command.command == "user"):
-                        if (command.body["username"] in self.websocket_username):
+                        if (user != None):
                             await conn.code(UserCodes.Errors.AlreadySignedIn)
                             continue
                         

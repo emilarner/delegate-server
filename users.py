@@ -1,5 +1,4 @@
 from typing import Any
-from unittest.util import strclass
 import uuid
 import time
 import json
@@ -50,6 +49,9 @@ def generate_user_state(creation: int, bot: bool) -> dict:
             "!blocked": [],
             "!friends": [],
             "!friendreqs": [],
+            "!subscriptionsto": [],
+            "!subscriptionstome": [],
+            "!privatesettings": [],
             "$bot": bot,
             "perms": [],
             "invisible": True,
@@ -102,11 +104,8 @@ class User:
 
         }
 
-        # What users are receiving their events of special setting updates?
-        # The protocol prohibits the user from knowing who. 
-        self.subscriptions = [
-
-        ]
+        # Load the user state from the database.
+        self.load_state()
 
         # Some internal settings that are extremely important
         # We will expose them through our beautiful abstraction
@@ -115,9 +114,9 @@ class User:
         self.channels: list = self.settings["!channels"]
         self.gchannels: list = self.settings["!gchannels"]
         self.friend_requests: list = self.settings["!friendreqs"]
+        self.subscriptions: list = self.settings["!subscriptionstome"]
+        self.subscriptionsto: list = self.settings["!subscriptionsto"]
 
-        # Load the user state from the database.
-        self.load_state()
 
 
     def queue_state_change(self):
@@ -145,6 +144,102 @@ class User:
         self.settings[setting] = value
         self.queue_state_change()
 
+
+    def set_settings(self, settings: dict):
+        "Set settings by an object."
+
+        self.settings.update(settings)
+        self.queue_state_change()
+
+
+    def add_user_subscriber(self, username: str):
+        "Add a user to the subscription list."
+
+        self.subscriptions.append(username)
+        self.queue_state_change()
+
+    
+    def subscribe_to(self, username: str):
+        "Subscribe to a user"
+
+        self.users.append_user_settings(username, "!subscribedto", [self.username])
+        self.subscriptionsto.append(username)
+        self.queue_state_change()
+
+    def unsubscribe_to(self, username: str):
+        "Unsubscribe to a user"
+
+        self.users.append_user_settings(username, "!subscribedto", [self.username], remove = True)
+        self.subscriptionsto.append(username)
+        self.queue_state_change()
+
+
+    def is_subscribedto(self, username: str) -> bool:
+        "Check whether subscribed to a user or not."
+
+        return username in self.subscriptionsto
+    
+
+    async def special_settings_emit(self, special: dict):
+        "Emit events to all subscribers when a special setting has changed."
+
+        for subscription in set(self.subscriptions + self.friends):
+
+            if ((user := self.users.get_user(subscription) == None)):
+                continue
+
+            await user.event("uspecial", {
+                "settings": special
+            })
+            
+
+    async def send_friendreq(self, other: str, msg: str):
+        usrsettings: dict = self.users.get_user_settings(other)
+
+        # Detect if such a friend request already exists
+        if (other in usrsettings["!friendreqs"]):
+            raise KeyError("Friend request already exists.")
+
+        self.users.append_user_settings(other, "!friendreqs", [self.username])
+
+
+        # Send the friend request event to the other user, only if they are online.
+        user = None
+        if ((user := self.users.get_user(other)) == None):
+            return
+
+        await user.event("friend", {
+            "username": self.username,
+            "message": msg
+        })
+
+
+
+    async def handle_friendreq(self, username: str, accept: bool, notify: bool):
+        "Handle a friend request."
+
+        if (username not in self.friend_requests):
+            raise KeyError("Friend request does not exist")
+
+        # If the friend request is accepted, add each other to friends list.
+        if (accept):
+            self.friends.append(username)
+            user = self.users.append_user_settings(username, "!friends", self.username)
+            self.queue_state_change()
+
+        # If notifying is turned on, notify them of whether it was accepted or not.
+        if (notify):
+            user = self.users.get_user(username)
+            if (user == None):
+                return
+
+            # Send the event.
+            await user.event("frequest", {
+                "username": self.username,
+                "accepted": accept
+            })
+
+        
 
 
     def get_setting(self, setting: str) -> Any:
@@ -223,7 +318,60 @@ class Users:
         }
 
 
+    def change_user_settings(self, username: str, settings: dict):
+        "Modify the user settings of any given user (whether they are online or not)"
+
+        # If an online user
+        if (username in self.users):
+            self.users[username].set_settings(settings)
+            return
+
+        # Going to have to set it via database now.
+        udb: UserDb = UserDb(self.instance, username)
+        if (not udb.exists()):
+            raise Exception("The user should exist???!?!?!?!?!?!?!?!")
+
+        
+        # Get existing settings so that we can modify them in place.
+        sets: dict = self.get_user_settings(username)
+        sets["settings"].update(settings)
+
+        # Set them.
+        udb.setsettings(sets)
+
+
+    def append_user_settings(self, username: str, setting: str, values: list, remove: bool = False):
+        "Add or remove (append negative) vector values from settings, whether the user is online or not"
+
+        # They're online
+        if (username in self.users):
+            for value in values:
+                if (remove):
+                    self.users[username].settings[setting].remove(value)
+                    continue
+
+                self.users[username].settings[setting].append(value)
+
+            return
+
+        # Have to use the database now.
+        udb: UserDb = UserDb(self.instance, username)
+        if (not udb.exists()):
+            raise Exception("Why doesn't the user exist?!?!??!?!?!?!")
+
+        settings: dict = udb.getsettings()["settings"]
+
+        for value in values:
+            if (remove):
+                settings[setting].remove(value)
+                continue
+
+            settings[setting].append(value)
+
+
     def get_user_settings(self, username: str) -> dict:
+        "Get the user account settings (protocol-defined settings) whether or not they're online"
+
         # An online user
         if (username in self.users):
             return self.users[username].settings
@@ -266,6 +414,16 @@ class Users:
         return self.users[username]
 
 
+    def user_exists(self, username) -> bool:
+        "An efficient way to check if a username exists. "
+
+        if (username in self.users):
+            return True
+
+        udb: UserDb = UserDb(username)
+        return udb.exists()
+
+
 
 
 class UserDb:
@@ -305,11 +463,12 @@ class UserDb:
 
         return passlib.hash.argon2.verify(password, passhash)
 
-    def getsettings(self) -> dict:
+    def getsettings(self) -> str:
         "Get the user settings"
 
         self.database.execute("SELECT settings FROM Users WHERE username = %s;", (self.username,))
-        settings = json.loads(self.database.fetchone()[0])
+        settings = self.database.fetchone()[0]
+        return settings
 
     def setsettings(self, settings: dict):
         "Set the user settings"

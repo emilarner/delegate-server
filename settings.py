@@ -1,5 +1,8 @@
-import enum
+from typing import Any
+
 import config
+from definitions import *
+from util import *
 
 class SettingTypes:
     Scalar = 0
@@ -22,6 +25,43 @@ class SettingInfo:
         self.qualifier: str = None
 
 
+    async def _range_error(self, connection, name):
+        await connection.code(SettingCodes.Errors.Range, {
+            "setting": name,
+            "range": self.range
+        })
+
+    async def test(self, connection, name: str, setting: Any) -> bool:
+        # If the type is not the one that is required, send the client an error detailing
+        # that.
+        if (not isinstance(setting, self.kind)):
+            await connection.code(SettingCodes.Errors.Type, {
+                "setting": name,
+                "given": type(setting).__name__,
+                "required": self.kind.__name__
+            })
+
+            return False
+
+
+        # Check if the setting is within a specific numerical range
+        if (self.range != None):
+
+            # If it is a string, then the length will be ranged.
+            if (isinstance(setting, str)):
+                if (not within_range(len(setting), *self.range)):
+                    await self._range_error(connection, name)
+                    return False
+
+            # If it is an integer, then the numerical value will be ranged.
+            if (isinstance(setting, int)):
+                if (not within_range(setting, *self.range)):
+                    await self._range_error(connection, name)
+                    return False
+
+
+        return True
+
 
 class UserSetting:
     def __init__(self, user, conn, setting, value, kind = SettingTypes.Scalar):
@@ -31,11 +71,3 @@ class UserSetting:
         self.value = value
         self.kind = kind
 
-
-user_regulated_settings = {
-
-}
-
-user_special_settings = {
-    
-}

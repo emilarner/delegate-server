@@ -8,6 +8,41 @@ from settings import *
 from util import *
 from definitions import *
 
+async def test_command_parameters(body: dict, parameters: list, connection) -> list:
+    results = []
+
+    # Go through each parameter in the form of (name: str, type: type, required: bool)
+    for parameter in parameters:
+        name, kind, required = parameter
+        value = None
+
+        # If it is not required, leave it as None or the actual value provided.
+        if (not required):
+            if (name in body):
+                value = body[name]
+
+        else:
+
+            # If it is required, send an error code and return None if it does not exist.
+            if (name not in body):
+                await connection.code(CommandCodes.ArgsMissing)
+                return None
+
+            value = body[name]
+
+        # If the value of the parameter is mismatching and is required
+        # (cannot have a value of None/null), send an error code and return None
+        if (not isinstance(value, kind) and required):
+            await connection.code(CommandCodes.InvalidTypes)
+            return None
+
+        results.append(value)
+
+    return results
+
+
+
+
 class DelegateCommand:
     def __init__(self, connection, instance, command, body, user):
         self.connection = connection
@@ -17,7 +52,8 @@ class DelegateCommand:
 
         self.command: str = command
         self.body: dict = body
-        self.user = user
+        self.user: users.User = user
+        self.users: users.Users = user.users
 
     @staticmethod
     def from_json(connection, instance, ccode, user):
@@ -25,6 +61,8 @@ class DelegateCommand:
         
         code = json.loads(ccode)
         return DelegateCommand(connection, instance, code["command"], code, user)
+
+
 
 
 async def initial_user_signin(command: DelegateCommand) -> bool:
@@ -207,6 +245,10 @@ async def uset_command(command: DelegateCommand):
 
     }
 
+    new_settings = {
+
+    }
+
     for key, value in settings.items():
         key: str = key
 
@@ -219,41 +261,24 @@ async def uset_command(command: DelegateCommand):
         if (key in users.setting_infos):
             info: SettingInfo = users.setting_infos[key]
 
-            # Detect error in type.
-            if (not isinstance(value, info.kind)):
-                await command.connection.code(SettingCodes.Errors.Type, {
-                    "setting": key,
-                    "given": type(value).__name__,
-                    "required": info.kind.__name__
-                })
-
+            # Test if it passed the regulations.
+            if (not info.test(command.connection, key, value)):
                 return
 
-            # Regulate a value's range. (Must be str or int)
-            if (info.range != None):
-                # This can be simplified. But am I going to do it?
-                # Calculate range based upon string length
-                if (isinstance(value, str)):
-                    if (not within_range(len(value), *info.range)):
-                        await command.connection.code(SettingCodes.Errors.Range, {
-                            "setting": key,
-                            "range": info.range
-                        })
-
-                # Calculate range based upon integer value
-                if (isinstance(value, int)):
-                    if (not within_range(value, *info.range)):
-                        await command.connection.code(SettingCodes.Errors.Range, {
-                            "setting": key,
-                            "range": info.range
-                        })
-
-            # Add this to the list of special settings we need to send events for.
+            # Add this to the list of special settings we need to send events for
+            # only if it is a special setting.
             if (info.special):
                 special_settings[key] = value
 
 
-            command.user.set_setting(key, value)
+            new_settings[key] = value
+        
+    # Modify the settings and put the user on the queue.
+    command.user.set_settings(new_settings)
+
+    # Emit special setting notice to all friends and subscribers
+    if (special_settings != {}):
+        await command.user.special_settings_emit(special_settings)
 
 
         
@@ -266,18 +291,25 @@ async def uget_command(command: DelegateCommand):
 
         # Must be specific type.
         if (not isinstance(settings, list)):
-            await command.conn.code(CommandCodes.InvalidTypes)
+            await command.connection.code(CommandCodes.InvalidTypes)
             return
 
-        if (not isinstance(username, str)):
-            await command.conn.code(CommandCodes.InvalidTypes)
+        # Username may be *null* to signify that we are obtaining from ourselves.
+        if (username != None and not isinstance(username, str)):
+            await command.connection.code(CommandCodes.InvalidTypes)
             return
 
     except KeyError:
-        await command.conn.code(CommandCodes.ArgsMissing)
+        await command.connection.code(CommandCodes.ArgsMissing)
         return
 
-    
+
+    # If the username does not exist.
+    if (username != None and not command.users.user_exists(username)):
+        await command.connection.code(UserCodes.Errors.UsernameNoent)
+        return
+
+
     result = {
 
     }
@@ -322,13 +354,90 @@ async def upriv_command(command: DelegateCommand):
 
 
 async def frequest_command(command: DelegateCommand):
-    pass
+    try:
+        username = command.body["username"]
+        message = None if message not in command.body else command.body["message"]
+    
+        # Detect invalid types.
+        if (not isinstance(username, str) or (message != None and not isinstance(message, str))):
+            await command.connection.code(CommandCodes.InvalidTypes)
+            return
+
+    except KeyError:
+        await command.connection.code(CommandCodes.ArgsMissing)
+        return
+
+    # Check if the user exists.
+    if (not command.users.user_exists(username)):
+        await command.connection.code(UserCodes.Errors.UsernameNoent)
+        return
+
+    await command.user.send_friendreq(username, message)
+
 
 async def friend_command(command: DelegateCommand):
-    pass
+    try:
+        username: str = command.body["username"]
+        accept: bool = command.body["accept"]
+        notify: bool = command.body["notify"]
+
+        # Enforce types.
+        # We could abstract/simplify this, but honestly it's better like this...
+        if (not isinstance(username, str) 
+            or not isinstance(accept, bool)
+            or not isinstance(notify, bool)):
+
+            await command.connection.code(CommandCodes.InvalidTypes)
+            return
+
+        
+
+    except KeyError:
+        await command.connection.code(CommandCodes.ArgsMissing)
+        return
+
+    # If the user does not exist.
+    if (username not in command.user.friend_requests):
+        await command.connection.code(UserCodes.Errors.FriendRequestNoent)
+        return
+
+    # Accept or deny the friend request.
+    await command.user.handle_friendreq(username, accept, notify)
+
 
 async def usubscribe_command(command: DelegateCommand):
-    pass
+    try:
+        username: str = command.body["username"]
+        subscribe: bool = command.body["subscribe"]
+
+        # Check types, as always.
+        if (not isinstance(username, str) or not isinstance(subscribe, bool)):
+            await command.connection.code(CommandCodes.InvalidTypes)
+            return
+    
+    except KeyError:
+        await command.connection.code(CommandCodes.ArgsMissing)
+        return
+
+    # Add a user subscription
+    if (subscribe):
+        # Cannot subscribe if already subscribed to.
+        if (command.user.is_subscribedto(username)):
+            await command.connection.code(UserCodes.Errors.SubscriptionError)
+            return
+
+        command.user.subscribe_to(username)
+
+    # Remove a user subscription
+    else:
+        # Cannot unsubscribe if not already subscribed to.
+        if (not command.user.is_subscribedto(username)):
+            await command.connection.code(UserCodes.Errors.SubscriptionError)
+            return
+
+        command.user.unsubscribe_to(username)
+        
+
 
 async def umsgquery_command(command: DelegateCommand):
     pass
@@ -341,8 +450,11 @@ commands_list = {
     "usend": usend_command,
     "get": uget_command,
     "uset": uset_command,
-    "uget": uget_command
+    "uget": uget_command,
+    "frequest": frequest_command,
+    "friend": friend_command
 }
+
 
 primitive_commands = [
     "user",

@@ -49,6 +49,8 @@ class UserCodes:
         TwoFactorVerify = -114
         CantBecomeFriends = -115
         CantSendMessage = -116
+        FriendNoent = -117
+        SubscriptionError = -118
 
 class ChannelCodes:
     class Success:
