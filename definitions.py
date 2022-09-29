@@ -109,3 +109,13 @@ class SettingCodes:
         Range = -409
         WrongData = -410
         
+
+class QueryableCodes:
+    class Success:
+        Query = 500
+
+    class Errors:
+        FieldNoent = -500
+        Misuse = -501
+        Array = -502
+        Type = -503

@@ -66,6 +66,10 @@ class Message:
 
 
 
+queryables = [
+    
+]
+
 class MessagesDatabase:
     "A class which handles inputting messages into a database."
 
@@ -73,6 +77,8 @@ class MessagesDatabase:
         self.instance = instance
         self.database = instance.database
         self.cursor: psycopg2.cursor = instance.cursor
+
+
 
     def user_message(self, msg: Message):
         "Store a user private message into the database."

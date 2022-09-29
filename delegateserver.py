@@ -10,6 +10,7 @@ import commands
 import users
 import channels
 import messages
+import events
 
 from commands import DelegateCommand
 from definitions import *
@@ -88,9 +89,19 @@ class DelegateServer:
             "(id UUID, kind TEXT, parties TEXT, whom TEXT, containing TEXT," 
             "creation INTEGER, format TEXT);"
         ))
+
+        self.cursor.execute((
+            "CREATE TABLE IF NOT EXISTS UserEvents (id UUID, event TEXT, parties TEXT,"
+            "contents TEXT);"
+        ))
+
         
+        # Save the database table creations
         self.database.commit()
+
+        
         self.messages: messages.MessagesDatabase = messages.MessagesDatabase(self)
+        self.events: events.EventDatabase = events.EventDatabase(self)
 
         # Server constants that expose information about the server to ALL clients.
         self.constants = {
