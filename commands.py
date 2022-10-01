@@ -1,3 +1,4 @@
+from distutils.cmd import Command
 import json
 
 import users
@@ -7,6 +8,23 @@ import messages
 from settings import *
 from util import *
 from definitions import *
+
+
+def type_test(variables: list, types: list):
+    "Given a list of variables, then a list of their supposed types, check if its true."
+
+    for i in range(len(variables)):
+        if (not isinstance(variables[i], types[i])):
+            return False
+
+    return True
+
+# Okay, so I tried abstracting away a lot of the command sanity checking boilerplate with this.
+# But if I am to be honest, this method just looks so fucking ugly it's unbelievable.
+# If I ever get tired of writing the boilerplate, I'll use this. But until then,
+# this is fucking ugly as shit, admit it. I tend to write C-like Python code, because
+# I'm *that* kind of person. Make fun of me for using parentheses around my if-statements,
+# because I'll just keep using them...
 
 async def test_command_parameters(body: dict, parameters: list, connection) -> list:
     results = []
@@ -67,8 +85,18 @@ class DelegateCommand:
 
 async def initial_user_signin(command: DelegateCommand) -> bool:
     try:
-        username = command.body["username"]
-        password = command.body["password"]
+        username: str = command.body["username"]
+        password: str = command.body["password"]
+        tfa: str = None if "2fa" not in command.body else command.body["2fa"]
+
+        # Validate the types that are sent in by the client.
+        if (not type_test([username, password], [str, str]) or 
+            (tfa != None and not isinstance(tfa, str))):
+
+            await command.connection.code(CommandCodes.InvalidTypes)
+            return
+
+        
 
     except KeyError:
         await command.connection.code(CommandCodes.ArgsMissing)
@@ -76,9 +104,9 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
 
 
     # 2FA is not implemented yet.
-    if ("2fa" in command.body):
-        await command.connection.code(ServerCodes.Error.NotImplemented)
-        return False
+    #if ("2fa" in command.body):
+    #    await command.connection.code(ServerCodes.Error.NotImplemented)
+    #    return False
 
     udb = users.UserDb(command.instance, username)
 
@@ -181,6 +209,12 @@ async def usend_command(command: DelegateCommand):
         await command.connection.code(UserCodes.Errors.UsernameNoent)
         return
 
+
+    # The user has blocked you, so you may not send messages to them.
+    if (command.user.has_me_blocked(to)):
+        await command.connection.code(UserCodes.Errors.UserBlocked)
+        return 
+
     # Make a message object
     msg = messages.Message(
         messages.MessageOrigins.User,
@@ -196,7 +230,9 @@ async def usend_command(command: DelegateCommand):
         await command.user.send_message(to_user, msg)
 
     # Store the message in the database.
-    command.messages.user_message(msg)
+    
+    # Under construction; this will be implemented later.
+    # command.messages.user_message(msg)
 
 
 async def get_command(command: DelegateCommand):
@@ -440,7 +476,28 @@ async def usubscribe_command(command: DelegateCommand):
 
 
 async def umsgquery_command(command: DelegateCommand):
-    pass
+    try:
+        username: str = command.body["username"]
+        query: dict = command.body["query"]
+        page_len: int = command.body["page_len"]
+        timestamp: int = command.body["timestamp"] if "timestamp" in command.body else None
+
+        # New anti-boilerplate feature.
+        if (not type_test([username, query, page_len], [str, dict, int]) 
+            or (not isinstance(timestamp, int) and timestamp != None)):
+
+            await command.connection.code(CommandCodes.InvalidTypes)
+            return
+
+
+    except KeyError:
+        await command.connection.code(CommandCodes.ArgsMissing)
+        return
+
+
+    
+    
+
 
 async def ueventquery_command(command: DelegateCommand):
     pass

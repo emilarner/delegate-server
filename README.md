@@ -22,6 +22,7 @@ Phase 1:
 - Commands & Command abstractions
 - Command regulation abstractions
 - Setting regulation abstractions
+- User 2FA implementation
 
 Phase 2:
 - Channel implementation
@@ -41,7 +42,7 @@ Phase 3:
 	- Channel querying
 	- Server querying
 	- User querying
-- User 2FA implementation
+	- Message querying and saving
 - Implementation of User and Channel streams
 - Code cleanup
 - Finalization

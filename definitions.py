@@ -1,5 +1,8 @@
 from types import NoneType
 
+MINUTE = 60
+HOUR = MINUTE * 60
+DAY = HOUR * 24
 
 class ServerCodes:
     class Success:

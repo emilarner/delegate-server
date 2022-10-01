@@ -1,3 +1,4 @@
+from definitions import *
 
 class ServerInfo:
     Name = "A Delegate Server"
@@ -35,6 +36,9 @@ class Database:
 class ServerPassword:
     On = False
     Password = "aserverpassword"
+
+class UserSettings:
+    UserAwayTime = 10*MINUTE
 
 class UserRegulations:
     Length = [3, 24]

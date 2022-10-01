@@ -1,3 +1,5 @@
+# Phase 3
+
 from re import T
 from typing import Any, Type
 import psycopg2
@@ -122,5 +124,7 @@ def generate_query(cursor: psycopg2.cursor, table: str, connection, queryables: 
         # Validate the query given.
         if (not queryable.queryable.validate_query(connection, queryable.query)):
             return None
+
+        result += None
 
         

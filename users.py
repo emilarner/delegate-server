@@ -1,4 +1,9 @@
+# Phase 1 
+
+from platform import python_version_tuple
 from typing import Any
+
+import asyncio
 import uuid
 import time
 import json
@@ -8,9 +13,14 @@ import psycopg2
 import messages
 import queue
 import threading
+import pyotp
 
 from settings import *
 from config import UserSettingRegulations
+from config import UserSettings
+from config import UserRegulations
+
+from definitions import *
 
 class UserStatuses:
     Online = 0
@@ -61,7 +71,8 @@ def generate_user_state(creation: int, bot: bool) -> dict:
             "skeptic": False,
             "$status": UserStatuses.Online,
             "&pager": None,
-            "&pager_level": 0
+            "&pager_level": 0,
+            "&2fa": False
         }
     }
 
@@ -103,6 +114,9 @@ class User:
         self.settings: dict = {
 
         }
+
+        # For determining when someone is 'away'
+        self.last_meaningful_action: int = round(time.time())
 
         # Load the user state from the database.
         self.load_state()
@@ -179,6 +193,12 @@ class User:
 
         return username in self.subscriptionsto
     
+
+    def has_me_blocked(self, username: str) -> bool:
+        "Am I blocked by the user or not...?"
+
+        return self.username in self.users.get_user_settings(username)["!blocked"]
+
 
     async def special_settings_emit(self, special: dict):
         "Emit events to all subscribers when a special setting has changed."
@@ -317,8 +337,40 @@ class Users:
 
         }
 
+        self.tfa_cache = {
 
-    def change_user_settings(self, username: str, settings: dict):
+        }
+
+        asyncio.get_event_loop().create_task(self.away_checker())
+
+
+    async def away_checker(self):
+        "Function which checks which users have gone away or not, dependent on settings."
+
+        while True:
+            for user in self.users:
+                # If they have been inactive for a certain amount of time...
+                if ((round(time.time()) - user.last_meaningful_action) 
+                    >= UserSettings.UserAwayTime):
+
+                    await self.change_user_settings(user.username, {
+                        "$status": UserStatuses.Away
+                    }, special = True)
+
+                time.sleep(0.5)
+
+            time.sleep(5 * MINUTE)
+
+    def two_users_in_channel(self, username1, username2) -> bool:
+        "Are two users within mutual channels?"
+
+        channels1 = set(self.get_user_settings(username1)["!channels"])
+        channels2 = set(self.get_user_settings(username2)["!channels"])
+
+        return channels1.intersection(channels2) != set()
+
+
+    async def change_user_settings(self, username: str, settings: dict, special = False):
         "Modify the user settings of any given user (whether they are online or not)"
 
         # If an online user
@@ -338,6 +390,9 @@ class Users:
 
         # Set them.
         udb.setsettings(sets)
+
+        if (special):
+            await self.users[username].special_settings_emit(settings)
 
 
     def append_user_settings(self, username: str, setting: str, values: list, remove: bool = False):
@@ -390,17 +445,35 @@ class Users:
         return self.settings_cache[username]
 
     
+    def has_2fa(self, username: str) -> bool:
+        return self.get_user_settings(username)["&2fa"]
 
 
-    def add_user(self, username, connection) -> User:
+    def verify_2fa(self, username: str, code: str) -> bool:
+        udb: UserDb = UserDb(username)
+        secret_key = udb.get_tfa()
+        totp = pyotp.TOTP(secret_key)
+
+        return totp.verify(code)
+        
+
+
+    async def add_user(self, username, connection) -> User:
         "Add a username or a connection (by username) to the pool of currently connected users."
 
         if (username not in self.users):
+            # Delete the cached settings once the user comes online.
             if (username in self.settings_cache):
                 del self.settings_cache[username]
 
+            # Declare that they are online through the $status user setting.
+            await self.change_user_settings(username, {
+                "$status": UserStatuses.Online
+            }, special = True)
+
             self.users[username] = User(username, connection, self.instance, self)
             return self.users[username]
+
 
         self.users[username].add_connection(connection)
         return self.users[username]
@@ -424,7 +497,24 @@ class Users:
         return udb.exists()
 
 
+    def user_online(self, username) -> bool:
+        return (username in self.users)
 
+    async def user_logoff(self, connection, username):
+        if (username not in self.users):
+            raise KeyError("User is not online??!?!?!?!?!?!?!?")
+
+        # Remove the active connection
+        self.users[username].connections.remove(connection)
+
+        # If there are no more connections, mark the user's status as offline
+        # then declare it a special setting, so that it will be sent as an event
+        # to all subscribers and friends.
+        if (self.users[username].connections == []):
+            await self.change_user_settings(username, {
+                "$status": UserStatuses.Offline
+            }, special = True)
+        
 
 class UserDb:
     def __init__(self, instance, username: str):
@@ -479,4 +569,24 @@ class UserDb:
         ))
 
         self.instance.database.commit()
+
+
+    def get_tfa(self) -> str:
+        "Receive the 2fa secret key that the user has."
+
+        self.database.execute("SELECT 2fa FROM Users WHERE username = %s;", (self.username,))
+        return self.database.fetchone()[0]
+
+
+    def update_2fa(self) -> str:
+        "Add or change TOPT 2FA onto the user. Returns the secret key generated"
+
+        tfa_secret = pyotp.random_base32()
+        self.database.execute("UPDATE Users SET tfa = %s WHERE username = %s;", (
+            tfa_secret,
+            self.username
+        ))
+
+        self.instance.database.commit()
+        return tfa_secret
 
