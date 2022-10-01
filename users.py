@@ -34,11 +34,12 @@ setting_infos = {
     "status_text": SettingInfo(str, UserSettingRegulations.StatusLength, True),
     "description": SettingInfo(str, UserSettingRegulations.DescriptionLength, True),
     "avatar": SettingInfo(str, UserSettingRegulations.AvatarLength, True),
-    "invisible": SettingInfo(bool, None, False),
-    "asocial": SettingInfo(bool, None, False),
-    "friends_only": SettingInfo(bool, None, False),
-    "lone": SettingInfo(bool, None, False),
-    "skeptic": SettingInfo(bool, None, False),
+    "&invisible": SettingInfo(bool, None, False),
+    "&asocial": SettingInfo(bool, None, False, conflicts = ["&friends_only"]),
+    "&friends_only": SettingInfo(bool, None, False, conflicts = ["&asocial"]),
+    "&lone": SettingInfo(bool, None, False, conflicts = ["&skeptic"]),
+    "&skeptic": SettingInfo(bool, None, False, conflicts = ["&lone"]),
+    "&friendly": SettingInfo(bool, None, False),
     "&pager": SettingInfo(str, UserSettingRegulations.PagerLength, False),
     "&pager_level": SettingInfo(int, None, False)
 }
@@ -64,11 +65,12 @@ def generate_user_state(creation: int, bot: bool) -> dict:
             "!privatesettings": [],
             "$bot": bot,
             "perms": [],
-            "invisible": True,
-            "asocial": False,
-            "friends_only": False,
-            "lone": False,
-            "skeptic": False,
+            "!invisible": True,
+            "!asocial": False,
+            "!friends_only": False,
+            "!lone": False,
+            "!skeptic": False,
+            "!friendly": True,
             "$status": UserStatuses.Online,
             "&pager": None,
             "&pager_level": 0,
@@ -259,7 +261,9 @@ class User:
                 "accepted": accept
             })
 
-        
+
+    def friends_with(self, username: str) -> bool:
+        return username in self.friends        
 
 
     def get_setting(self, setting: str) -> Any:

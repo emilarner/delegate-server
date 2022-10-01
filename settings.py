@@ -16,13 +16,14 @@ class SettingQualifiers:
 
 
 class SettingInfo:
-    def __init__(self, kind: type, range: list, special: bool):
+    def __init__(self, kind: type, range: list, special: bool, conflicts: list = None):
         "Packages setting information"
         
         self.kind: type = kind
         self.range: list = range
         self.special: bool = special
         self.qualifier: str = None
+        self.conflicts: list = conflicts
 
 
     async def _range_error(self, connection, name):
@@ -31,7 +32,7 @@ class SettingInfo:
             "range": self.range
         })
 
-    async def test(self, connection, name: str, setting: Any) -> bool:
+    async def test(self, other_settings: dict, connection, name: str, setting: Any) -> bool:
         # If the type is not the one that is required, send the client an error detailing
         # that.
         if (not isinstance(setting, self.kind)):
@@ -42,6 +43,19 @@ class SettingInfo:
             })
 
             return False
+
+
+        # There are potential boolean conflicts with mutual exclusivity
+        if (self.conflicts != None):
+            for conflict in self.conflicts:
+
+                # If both are True, that is illegal, so error.
+                if (other_settings[conflict] and setting):
+                    await connection.code(SettingCodes.Errors.MutuallyExclusive, {
+                        "settings": [name, conflict]
+                    })
+
+                    return False
 
 
         # Check if the setting is within a specific numerical range

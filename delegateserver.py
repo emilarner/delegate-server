@@ -19,6 +19,7 @@ from util import *
 
 # Any amateur fool can make a chat application/protocol
 # But only a professional can make it scalable and efficient.
+# We are incapable of making scalable and efficient software.
 
 
 class Connection:

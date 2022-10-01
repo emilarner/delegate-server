@@ -1,4 +1,3 @@
-from distutils.cmd import Command
 import json
 
 import users
@@ -103,10 +102,6 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
         return False
 
 
-    # 2FA is not implemented yet.
-    #if ("2fa" in command.body):
-    #    await command.connection.code(ServerCodes.Error.NotImplemented)
-    #    return False
 
     udb = users.UserDb(command.instance, username)
 
@@ -119,6 +114,14 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
     if (not udb.verify(password)):
         await command.connection.code(UserCodes.Errors.PasswordIncorrect)
         return False
+
+
+    # If two-factor authentication is required and it is denied, error.
+    if (command.users.has_2fa(username)):
+        if (not command.users.verify_2fa(username, tfa)):
+            await command.connection.code(UserCodes.Errors.TwoFactorVerify)
+            return
+
 
     return True
 
@@ -215,6 +218,26 @@ async def usend_command(command: DelegateCommand):
         await command.connection.code(UserCodes.Errors.UserBlocked)
         return 
 
+    other_settings: dict = command.users.get_user_settings(to)
+
+    # Cannot message them, no matter what
+    if (other_settings["&asocial"]):
+        await command.connection.code(UserCodes.Errors.CantSendMessage)
+        return
+
+    # Cannot send a message to them, because we are not friends.
+    if (other_settings["&friends_only"] and not command.user.friends_with(to)):
+        await command.connection.code(UserCodes.Errors.CantSendMessage)
+        return
+
+
+    # Cannot send a message to them because we don't share a channel.
+    if (not other_settings["&friendly"] 
+            and not command.users.two_users_in_channel(command.user.username, to)):
+
+        await command.connection.code(UserCodes.Errors.CantSendMessage)
+        return
+
     # Make a message object
     msg = messages.Message(
         messages.MessageOrigins.User,
@@ -231,7 +254,8 @@ async def usend_command(command: DelegateCommand):
 
     # Store the message in the database.
     
-    # Under construction; this will be implemented later.
+    # Under construction; this will be implemented later
+    # Phase III:
     # command.messages.user_message(msg)
 
 
@@ -285,6 +309,8 @@ async def uset_command(command: DelegateCommand):
 
     }
 
+    existing_settings: dict = command.user.settings
+
     for key, value in settings.items():
         key: str = key
 
@@ -298,7 +324,7 @@ async def uset_command(command: DelegateCommand):
             info: SettingInfo = users.setting_infos[key]
 
             # Test if it passed the regulations.
-            if (not info.test(command.connection, key, value)):
+            if (not info.test(existing_settings, command.connection, key, value)):
                 return
 
             # Add this to the list of special settings we need to send events for
@@ -406,6 +432,22 @@ async def frequest_command(command: DelegateCommand):
     # Check if the user exists.
     if (not command.users.user_exists(username)):
         await command.connection.code(UserCodes.Errors.UsernameNoent)
+        return
+
+    their_settings: dict = command.users.get_user_settings(username)
+    
+
+    # Nobody can become friends with them.
+    if (their_settings["&lone"]):
+        await command.connection.code(UserCodes.Errors.CantBecomeFriends)
+        return
+
+
+    # Cannot become friends due to the other user's skepticism.
+    if (their_settings["&skeptic"] 
+            and not command.users.two_users_in_channel(username, command.user.username)):
+
+        await command.connection.code(UserCodes.Errors.CantBecomeFriends)
         return
 
     await command.user.send_friendreq(username, message)
