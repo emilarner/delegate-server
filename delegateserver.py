@@ -71,14 +71,16 @@ class DelegateServer:
 
         self.cursor.execute((
             "CREATE TABLE IF NOT EXISTS Channels"
-            "(channel TEXT, created INTEGER, settings TEXT);"
+            "(channel TEXT, created INTEGER, state TEXT);"
         ))
 
         self.cursor.execute((
             "CREATE TABLE IF NOT EXISTS ChannelQueryables"
-            "(channel TEXT, queryable TEXT, value TEXT); "
+            "(channel TEXT, queryable TEXT, value_str TEXT, value_int INTEGER, value_bool BOOLEAN); "
         ))
 
+
+        # for later i guess
         self.cursor.execute((
             "CREATE TABLE IF NOT EXISTS ChannelMessages"
             "(id UUID, kind TEXT, channel TEXT, subchannel TEXT, whom TEXT, containing TEXT," 

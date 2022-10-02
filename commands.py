@@ -145,6 +145,8 @@ async def reportmsg_command(command: DelegateCommand):
     pass
 
 
+#async def logout_command(command: DelegateCommand)
+
 
 async def user_register(command: DelegateCommand) -> bool:
     try:
@@ -408,7 +410,7 @@ async def uget_command(command: DelegateCommand):
     })
 
 
-# Deprecated
+# Deprecated--it no longer exists within the protocol.
 async def upriv_command(command: DelegateCommand):
     pass
 
@@ -517,6 +519,7 @@ async def usubscribe_command(command: DelegateCommand):
         
 
 
+# in construction, moved to Phase III
 async def umsgquery_command(command: DelegateCommand):
     try:
         username: str = command.body["username"]
@@ -545,6 +548,7 @@ async def ueventquery_command(command: DelegateCommand):
     pass
 
 
+# A list of non-primitive commands corresponding to their function handler.
 commands_list = {
     "usend": usend_command,
     "get": uget_command,
@@ -555,6 +559,7 @@ commands_list = {
 }
 
 
+# A list of commands which do not require signing into a user.
 primitive_commands = [
     "user",
     "uregister",

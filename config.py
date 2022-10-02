@@ -56,3 +56,6 @@ class MessageRegulations:
     Length = [0, 1024]
 
 
+class ChannelDefaults:
+    JoinMessage = "Welcome to the channel!"
+    LeaveMessage = "Sorry to see you leave!"
