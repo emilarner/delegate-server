@@ -102,23 +102,24 @@ class BannedEntity:
         return json.dumps(self.to_dict())
 
 class ChannelPermissions:
-    Talk = 0
-    Read = 1
-    Remove = 2
-    Subchannel = 3
-    Metadata = 4
-    Set = 5
-    Kick = 6
-    Ban = 7
-    Mute = 8
-    Role = 9
-    Invite = 10
-    Password = 11
-    Order = 12
-    Vote = 13
-    Cast = 14
-    Summon = 15
-    Admin = 16
+    Talk = "talk"
+    Read = "read"
+    Remove = "remove"
+    Subchannel = "subchannel"
+    Metadata = "metadata"
+    Set = "set"
+    Kick = "kick"
+    Ban = "ban"
+    Mute = "mute"
+    Role = "role"
+    Invite = "invite"
+    Password = "password"
+    Order = "order"
+    Vote = "vote"
+    Cast = "cast"
+    Summon = "summon"
+    Admin = "admin"
+
 
 class Channel:
     "A Delegate channel"
@@ -171,25 +172,75 @@ class Channel:
         self.users[username] = generate_user_field(username, role = role)
 
 
+    def order_roles(self, username: str, role_order: list):
+        """Change the ordering hierarchy of the roles, depending on a user's perspective.
+        Raises KeyError when not all roles are provided in the new role order.
+        Raises PermissionError when the role order is done insubordinately.
+        """
+
+        # While the order of the new and old role orders may be different
+        # they must contain the same elements. Sets can achieve this.
+        # Two sets are equal if they contain the same elements.
+        # Python sets are so true to mathematical sets, it's quite fascinating...
+        
+        if (set(role_order) != set(self.order)):
+            raise KeyError("One role is missing from the role_order")
+
+        role: str = self.get_role(username)
+        index: int = self.order.index(role)
+
+        # Find the value and indices of roles that are at or below (more powerful)
+        # the current role of the user.
+        immutable_roles = filter(
+            lambda x: x[0] <= index, 
+            enumerate(self.order)
+        )
+
+        # Go through each index and role.
+        for immrole in immutable_roles:
+            # If the index has changed in the new role order for the untouchable roles
+            # yield a permission's error.
+            if (immrole[0] != role_order.index(immrole[1])):
+                raise PermissionError("The ordering of your role and higher roles has been changed.")
+
+
+        # It was a success: the role order has been changed.
+        self.order = role_order
+
+
+
+
+
+
+
     def get_role(self, username) -> str:
         "Return the string role name that a username has."
 
         return self.users[username]["role"]
 
-    def has_permission(self, username, perm: int) -> bool:
+    def has_permission(self, username: str, perm: str, subchannel: str = None) -> bool:
         "Return whether a user has permission to do something or not."
 
         # Owner always has every permission
         if (self.get_role(username) == "owner"):
             return True
 
+        # Get user channel-wide permissions.
         perms = self.perms(username)
 
-        # Admins always have every permission, except for channel deletion.
-        if (ChannelPermissions.Admin in perms):
+        # You can laugh, but I am not changing the name of this variable.
+        sperms = [] 
+        
+        # Get subchannel permissions if a subchannel is given to us.
+        if (subchannel != None):
+            sperms = self.subchannels[subchannel]["roles"][self.get_role(username)]
+
+        # "admin" permissions always has every permission, except for channel deletion.
+        if (ChannelPermissions.Admin in perms or ChannelPermissions.Admin in sperms):
             return True
 
-        return perm in self.perms(username)
+
+        return (perm in perms) or (perm in sperms)
 
 
     def can_moderate(self, username1, username2) -> bool:

@@ -361,7 +361,7 @@ class Users:
                         "$status": UserStatuses.Away
                     }, special = True)
 
-                time.sleep(0.5)
+                time.sleep(1)
 
             time.sleep(5 * MINUTE)
 
