@@ -1,6 +1,7 @@
 import json
 
 import users
+import channels
 import config
 import messages
 
@@ -71,6 +72,7 @@ class DelegateCommand:
         self.body: dict = body
         self.user: users.User = user
         self.users: users.Users = user.users
+        self.channels: channels.Channels = channels.Channels
 
     @staticmethod
     def from_json(connection, instance, ccode, user):
@@ -546,6 +548,47 @@ async def umsgquery_command(command: DelegateCommand):
 
 async def ueventquery_command(command: DelegateCommand):
     pass
+
+
+# Channel Commands
+
+async def cregister_command(command: DelegateCommand):
+    try:
+        channel: str = command.body["channel"]
+        group: bool = command.body["group"]
+
+        # Incorrect type: channel must be 'str'; group must be 'bool'
+        if (not isinstance(channel, str) or not isinstance(group, bool)):
+            await command.code(CommandCodes.InvalidTypes)
+            return
+
+    except KeyError:
+        await command.code(CommandCodes.ArgsMissing)
+        return
+
+    # Channel name length not within perscribed length range--more list unpacking, too!
+    if (not within_range(len(channel), *config.ChannelRegulations.Length)):
+        await command.code(ChannelCodes.Errors.NameLength)
+        return
+
+    # Channel name did not pass the REGEX test.
+    if (not regex_test(channel, config.ChannelRegulations.Regex)):
+        await command.code(ChannelCodes.Errors.Regex)
+        return
+
+    cdb = channels.ChannelDb(command.instance, channel)
+
+    # Already exists
+    if (cdb.exists()):
+        await command.code(ChannelCodes.Errors.AlreadyExists)
+        return
+
+
+    cdb.register(command.user.username, group)
+
+    
+
+
 
 
 # A list of non-primitive commands corresponding to their function handler.

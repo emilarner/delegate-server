@@ -59,3 +59,9 @@ class MessageRegulations:
 class ChannelDefaults:
     JoinMessage = "Welcome to the channel!"
     LeaveMessage = "Sorry to see you leave!"
+
+class ChannelRegulations:
+    Length = [4, 64]
+    Regex = "[a-zA-Z0-9+\/=-]"
+    SubLength = [2, 192]
+    SubRegex = "[a-zA-Z0-9+\/=-]"

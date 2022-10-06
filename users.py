@@ -365,6 +365,18 @@ class Users:
 
             time.sleep(5 * MINUTE)
 
+
+    def put_in_inbox(self, username, data: dict):
+        pass
+
+
+    async def send_event(self, username, event, body):
+        if (username in self.users):
+            user: User = self.users[username]
+            await user.event(event, body)
+
+        # Add code for the inbox here.
+
     def two_users_in_channel(self, username1, username2) -> bool:
         "Are two users within mutual channels?"
 

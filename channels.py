@@ -1,6 +1,7 @@
 import json
 import time
 import psycopg2
+import users
 
 
 from definitions import *
@@ -37,12 +38,13 @@ def generate_channel_settings(created: int, owner: str, group: bool) -> dict:
             ]
         },
         "$order": ["owner", "default"],
-        "$banned": [],
+        "$banned": {},
+        "$muted": {},
         "$subchannels": {
             "main": generate_subchannel_state()
         },
         "$userno": 1,
-        "$users": {owner: generate_user_field(role = "owner")},
+        "$userlist": [owner],
         "$group": group,
         "name": None,
         "description": None,
@@ -80,9 +82,11 @@ def generate_subchannel_state():
 
     return result
 
-def generate_default_channel_state(settings) -> dict:
+def generate_default_channel_state(settings: dict, owner: str) -> dict:
     result = {
-        "auxiliary": {},
+        "auxiliary": {
+            "users": {owner: generate_user_field(role = "owner")}
+        },
         "settings": settings
     }
 
@@ -124,15 +128,22 @@ class ChannelPermissions:
 class Channel:
     "A Delegate channel"
 
-    def __init__(self, name, state: dict, channels, users):
+    def __init__(self, instance, name, state: dict, channels, users):
+        self.instance = instance
+        self.usersinst: users.Users = instance.users
+
         self.name = name
         self.channels = channels
-        self.users = users
+        self.usersinst = users
 
         # Information about the channel not under
         # the channel settings, as specified by the
         # protocol.
         self.auxiliary = state["auxiliary"]
+
+        # Information about the users in the channel.
+        # This stays private to the outside. Not accessible via settings.
+        self.users = self.auxiliary["users"]
 
 
         # All of the useful channel settings that are
@@ -140,36 +151,99 @@ class Channel:
         # abstraction.
         self.order: list = self.settings["$order"]
         self.roles: list = self.settings["$roles"]
-        self.users = self.settings["$users"]
+        self.userlist: list = self.settings["$userlist"]
+        self.userno: int = self.settings["$userno"]
         self.banned = self.settings["$banned"]
+        self.muted = self.settings["$muted"]
         
         self.subchannels = self.settings["$subchannels"]
 
         self.settings = state["settings"]
+
+        self.cdb: ChannelDb = ChannelDb(instance, name)
         
 
+    def form_event(self, event, channel, body) -> dict:
+        result = {
+            "event": event,
+            "channel": channel
+        }.update(body)
+
+        return result
+
+
+    async def broadcast_event(self, event: str, body: dict, subchannel: str = None, user: str = None):
+        "Send an event to people/a person."
+        
+        # Automatically add the channel as a field in the body of the event.
+        body.update({"channel": self.name})
+
+        # Sending it to members of a subchannel only.
+        if (subchannel != None):
+            body.update({"subchannel": subchannel})
+            return
+
+        # Sending it to ONE user.
+        if (user != None):
+            pass
+            return
+
+        # Send it to every user in every channel.
+        for usr in self.userlist:
+            await self.usersinst.send_event(usr, event, body)
+
+
+    async def delete_channel(self):
+        "Delete the channel. Permanently."
+
+        self.cdb.delete()
+        await self.broadcast_event("cdeleted")
+        self.channels.unload_channel(self.name)
 
 
 
-    def add_subchannel(self, name):
+
+
+
+
+    async def add_subchannel(self, name):
         "Add a subchannel to the channel."
 
         self.subchannels[name] = generate_subchannel_state()
+        await self.broadcast_event("subchannel", {
+            "subchannel": name,
+            "status": "created"
+        })
 
-    def remove_user(self, username):
+    async def remove_user(self, username: str, message: str = None, circumstance: str = "normal"):
         "Remove a user from the channel."
 
         del self.users[username]
+        await self.broadcast_event("leave", {
+            "username": username,
+            "message": message,
+            "circumstance": circumstance
+        })
     
-    def dup_subchannel(self, old, new):
+    async def dup_subchannel(self, old, new):
         "Duplicate an existing subchannel to a new one."
 
         self.subchannels[new] = self.subchannels[old].copy()
+        await self.broadcast_event("subchannel", {
+            "subchannel": new,
+            "status": "created"
+        })
 
-    def add_user(self, username, role = "default"):
+    async def add_user(self, username: str, message: str = None, role = "default"):
         "Add a user to the channel, giving them data."
 
         self.users[username] = generate_user_field(username, role = role)
+        await self.broadcast_event("join", {
+            "username": username,
+            "message": message
+        })
+
+
 
 
     def order_roles(self, username: str, role_order: list):
@@ -206,11 +280,6 @@ class Channel:
 
         # It was a success: the role order has been changed.
         self.order = role_order
-
-
-
-
-
 
 
     def get_role(self, username) -> str:
@@ -268,6 +337,13 @@ class Channels:
         self.cursor = self.instance.cursor
 
     
+    def unload_channel(self, channel: str):
+        "Unload a channel object from memory by its string name."
+
+        del self.channels[channel]
+
+
+
     def add_channel(self, channel: str):
         "Add a channel from the database into memory."
 
@@ -314,6 +390,12 @@ class ChannelDb:
         return json.loads(self.database.fetchone()[0])
 
 
+    def delete(self):
+        "Delete the channel from the database"
+
+        self.database.execute("DELETE FROM Channels WHERE channel = %s;", (self.name,))
+        self.instance.database.commit()
+
     def register(self, username: str, group: bool):
         "Register a channel"
 
@@ -324,6 +406,8 @@ class ChannelDb:
             created,
             generate_default_channel_state(generate_channel_settings(created, username, group))
         ))
+
+        self.instance.database.commit()
 
     def setstate(self, settings):
         "Set the state of the channel"

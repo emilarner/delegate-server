@@ -46,8 +46,6 @@ class DelegateServer:
         self.port: int = port
         self.tls: bool = tls
 
-        self.users = users.Users(self)
-
 
         try:
             self.database = psycopg2.connect(
@@ -126,6 +124,9 @@ class DelegateServer:
             "username_regex": config.UserRegulations.Regex,
             "password_len": config.UserRegulations.PasswordLength
         }
+
+        self.users = users.Users(self)
+        self.channels = channels.Channels(self)
 
 
 
