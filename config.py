@@ -14,6 +14,16 @@ class ServerInfo:
 
     ]
 
+    Image = ""
+    Banner = ""
+
+
+class Networking:
+    Host = "0.0.0.0"
+    Port = 9998
+    WSPort = 9999
+    HTTP = 9997
+    HTTPS = 9996
 
 class ServerRegulations:
     MaxMessageLength = 4096
@@ -32,6 +42,7 @@ class Database:
     Username = "postgres"
     Password = "3313"
     Name = "delegatetest"
+    Host = "/tmp"
 
 class ServerPassword:
     On = False

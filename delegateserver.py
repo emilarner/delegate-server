@@ -29,6 +29,8 @@ class Connection:
         self.websocket = websocket
 
     async def code(self, code: int, body: dict = {}):
+        "Issue a response code to the socket in question."
+
         code_body = {
             "code": code
         }
@@ -37,19 +39,24 @@ class Connection:
         await self.websocket.send(json.dumps(code_body))
 
 
+    async def close(self):
+        "Close the socket"
+
+        await self.websocket.close()
+
 
 
 
 class DelegateServer:
-    def __init__(self, name, port: int, tls: bool):
-        self.name = name
+    def __init__(self, hostip, port: int, tls: bool):
+        self.hostip = hostip
         self.port: int = port
         self.tls: bool = tls
 
 
         try:
             self.database = psycopg2.connect(
-                host = "/tmp",
+                host = config.Database.Host,
                 dbname = config.Database.Name, 
                 user = config.Database.Username, 
                 password = config.Database.Password
@@ -96,6 +103,11 @@ class DelegateServer:
             "contents TEXT);"
         ))
 
+        self.cursor.execute((
+            "CREATE TABLE IF NOT EXISTS UserNotifications (id UUID, event TEXT, body TEXT,"
+            "origin TEXT, creation INTEGER, read BOOLEAN);"
+        ))
+
         
         # Save the database table creations
         self.database.commit()
@@ -117,7 +129,7 @@ class DelegateServer:
             
             # Settings
 
-            "freesettinglen"
+            "freesettinglen": 20,
 
             # User
             "username_len": config.UserRegulations.Length,
@@ -137,6 +149,7 @@ class DelegateServer:
         # Store the username and User object of the request
         username = None
         user = None
+        authenticated = False
 
 
         
@@ -149,6 +162,35 @@ class DelegateServer:
                     message,
                     user
                 )
+
+                # Quit the connection and logoff if signed in.
+                if (command.command == "quit"):
+                    if (username != None):
+                        await self.users.user_logoff(conn, username)
+
+                    await conn.close()
+                    break
+
+                # If a password is required, make sure they can't run any commands
+                # besides 'authenticate' and 'quit'
+                if (config.ServerPassword.On and not authenticated):
+                    if (command.command != "authenticate"):
+                        await conn.code(ServerCodes.Error.PasswordRequired)
+                        continue
+
+                
+                # Server authentication command
+                if (command.command == "authenticate"):
+                    # The password was incorrect, so alert them of that and continue.
+                    if (not commands.authenticate_command(command)):
+                        await conn.code(ServerCodes.Error.Password)
+                        continue
+                    
+                    # Authentication was a success
+                    authenticated = True
+                    continue
+
+
 
 
                 if (command.command in commands.primitive_commands):
@@ -164,7 +206,7 @@ class DelegateServer:
 
                         # Add it to the collection of currently connected users
                         # Then, give this connection a connected user. 
-                        user = self.users.add_user(command.body["username"], conn)
+                        user = await self.users.add_user(command.body["username"], conn)
                         username = command.body["username"]
 
                         await conn.code(UserCodes.Success.Signin)
@@ -180,6 +222,17 @@ class DelegateServer:
 
                         await conn.code(UserCodes.Success.Register)
                     
+                    continue
+
+                # Logout
+                if (command.command == "logout"):
+                    if (user == None):
+                        await conn.code(CommandCodes.NotSignedIn)
+                        continue
+
+                    await self.users.user_logoff(conn, username)
+                    user = None
+                    username = None
                     continue
 
 
@@ -214,7 +267,7 @@ class DelegateServer:
 
 
     async def main_server(self):
-        async with websockets.serve(self.handle, "0.0.0.0", self.port):
+        async with websockets.serve(self.handle, self.hostip, self.port):
             await asyncio.Future()
 
     def start(self):

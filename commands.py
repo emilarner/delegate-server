@@ -71,8 +71,8 @@ class DelegateCommand:
         self.command: str = command
         self.body: dict = body
         self.user: users.User = user
-        self.users: users.Users = user.users
-        self.channels: channels.Channels = channels.Channels
+        self.users: users.Users = instance.users
+        self.channels: channels.Channels = instance.channels
 
     @staticmethod
     def from_json(connection, instance, ccode, user):
@@ -81,6 +81,22 @@ class DelegateCommand:
         code = json.loads(ccode)
         return DelegateCommand(connection, instance, code["command"], code, user)
 
+
+async def authenticate_command(command: DelegateCommand) -> bool:
+    try:
+        password: str = command.body["password"]
+
+        # Gotta type test.
+        if (not isinstance(password, str)):
+            await command.connection.code(CommandCodes.InvalidTypes)
+            return
+
+    except KeyError:
+        await command.connection.code(CommandCodes.ArgsMissing)
+        return
+
+    
+    return (password == config.ServerPassword.Password)
 
 
 
@@ -128,8 +144,6 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
     return True
 
 
-async def quit_command(command: DelegateCommand):
-    pass
 
 async def ping_command(command: DelegateCommand):
     pass
@@ -137,8 +151,6 @@ async def ping_command(command: DelegateCommand):
 async def get_command(command: DelegateCommand):
     pass
 
-async def authenticate_command(command: DelegateCommand):
-    pass
 
 async def notifications_command(command: DelegateCommand):
     pass
@@ -594,7 +606,6 @@ async def cregister_command(command: DelegateCommand):
 # A list of non-primitive commands corresponding to their function handler.
 commands_list = {
     "usend": usend_command,
-    "get": uget_command,
     "uset": uset_command,
     "uget": uget_command,
     "frequest": frequest_command,

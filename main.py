@@ -3,6 +3,8 @@ import sys
 import threading
 
 from util import *
+
+import config
 import delegateserver
 
 
@@ -11,7 +13,8 @@ def debug_thread(instance):
         exec(input("python>"))
 
 def main():
-    port = 8080
+    hostip = config.Networking.Host
+    port = config.Networking.Port
     tls = False
 
     try:
@@ -23,6 +26,9 @@ def main():
                 elif (sys.argv[i] in ["-t", "--tls"]):
                     tls = True 
 
+                elif (sys.argv[i] in ["-h", "--host"]):
+                    hostip = sys.argv[i + 1]
+                
                 else:
                     eprint(f"Flag '{sys.argv[i]}' not recognized... exiting...")
                     sys.exit(-1)
@@ -32,10 +38,15 @@ def main():
         sys.exit(-2)
 
 
+    status_string = "Delegate Backend Server started on {port} with TLS {tls} on {host}".format(
+        port = port,
+        tls = "enabled" if tls else "disabled",
+        host = hostip
+    )
 
-    print("Delegate Backend Server started on port 8080")
+    print(status_string)
 
-    d = delegateserver.DelegateServer("test", 8080, False)
+    d = delegateserver.DelegateServer(hostip, port, tls)
 
     threading.Thread(target = debug_thread, args = (d,)).start()
 

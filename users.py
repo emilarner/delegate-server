@@ -41,13 +41,14 @@ setting_infos = {
     "&skeptic": SettingInfo(bool, None, False, conflicts = ["&lone"]),
     "&friendly": SettingInfo(bool, None, False),
     "&pager": SettingInfo(str, UserSettingRegulations.PagerLength, False),
-    "&pager_level": SettingInfo(int, None, False)
+    "&pager_level": SettingInfo(int, None, False),
+    "&priv_whitelist": SettingInfo(dict, None, False)
 }
 
 
 def generate_user_state(creation: int, bot: bool) -> dict:
     default_state = {
-        "subscriptions": [],
+        "auxiliary": None,
         "settings": {
             "name": None,
             "dnd": False,
@@ -74,7 +75,8 @@ def generate_user_state(creation: int, bot: bool) -> dict:
             "$status": UserStatuses.Online,
             "&pager": None,
             "&pager_level": 0,
-            "&2fa": False
+            "&2fa": False,
+            "&priv_whitelist": {}
         }
     }
 
@@ -113,9 +115,7 @@ class User:
         ]
 
         # This is where all user settings will be stored.
-        self.settings: dict = {
-
-        }
+        self.settings: dict = None
 
         # For determining when someone is 'away'
         self.last_meaningful_action: int = round(time.time())
@@ -152,7 +152,7 @@ class User:
         self.fields = json.loads(udb.getsettings())
 
         self.settings = self.fields["settings"]
-        self.subscriptions = self.fields["subscriptions"]
+        #self.subscriptions = self.fields["subscriptions"]
 
     def set_setting(self, setting: str, value: Any):
         "Change a user setting and push a database write onto the queue."
@@ -345,7 +345,7 @@ class Users:
 
         }
 
-        asyncio.get_event_loop().create_task(self.away_checker())
+        #asyncio.get_event_loop().create_task(self.away_checker())
 
 
     async def away_checker(self):
@@ -361,12 +361,12 @@ class Users:
                         "$status": UserStatuses.Away
                     }, special = True)
 
-                time.sleep(1)
+                await asyncio.sleep(1)
 
-            time.sleep(5 * MINUTE)
+            await asyncio.sleep(5 * MINUTE)
 
 
-    def put_in_inbox(self, username, data: dict):
+    def put_in_notifications(self, username, data: dict):
         pass
 
 
@@ -402,7 +402,7 @@ class Users:
         
         # Get existing settings so that we can modify them in place.
         sets: dict = self.get_user_settings(username)
-        sets["settings"].update(settings)
+        sets.update(settings)
 
         # Set them.
         udb.setsettings(sets)
@@ -457,7 +457,7 @@ class Users:
         if (not u.exists()):
             raise Exception("Uhh... the user does not exist????")
 
-        self.settings_cache[username] = u.getsettings()["settings"]
+        self.settings_cache[username] = json.loads(u.getsettings())["settings"]
         return self.settings_cache[username]
 
     
@@ -482,12 +482,12 @@ class Users:
             if (username in self.settings_cache):
                 del self.settings_cache[username]
 
+            self.users[username] = User(username, connection, self.instance, self)
+
             # Declare that they are online through the $status user setting.
             await self.change_user_settings(username, {
                 "$status": UserStatuses.Online
             }, special = True)
-
-            self.users[username] = User(username, connection, self.instance, self)
             return self.users[username]
 
 
@@ -517,8 +517,13 @@ class Users:
         return (username in self.users)
 
     async def user_logoff(self, connection, username):
-        if (username not in self.users):
+        if (username not in self.users.keys()):
             raise KeyError("User is not online??!?!?!?!?!?!?!?")
+
+
+        # Send a successful logout code.
+        await connection.code(UserCodes.Success.Logout)
+    
 
         # Remove the active connection
         self.users[username].connections.remove(connection)
