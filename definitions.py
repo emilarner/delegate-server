@@ -93,6 +93,9 @@ class CommandCodes:
     ServerPermissionDenied = -303
     NotSignedIn = -304
     MutuallyExclusive = -305
+    DuplicateFields = -306
+    EmptyValue = -307
+    Object = -308
 
 class SettingCodes:
     class Success:
@@ -111,6 +114,10 @@ class SettingCodes:
         TooLong = -408
         Range = -409
         WrongData = -410
+        Noent = -411
+        NotPrivate = -412
+        Prefixed = -413
+        WhiteDel = -414
         
 
 class QueryableCodes:

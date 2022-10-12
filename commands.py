@@ -408,6 +408,12 @@ async def uget_command(command: DelegateCommand):
                 await command.connection.code(SettingCodes.Errors.Private)
                 return
 
+            # If the command is private based off of the volition of the user.
+            if (command.users.is_private(username, command.user.username, setting)):
+                await command.connection.code(SettingCodes.Errors.Private)
+                return
+
+
         # Settings that do not exist are going to be None/null
         if (setting not in users_settings):
             result[setting] = None
@@ -424,10 +430,90 @@ async def uget_command(command: DelegateCommand):
     })
 
 
-# Deprecated--it no longer exists within the protocol.
-async def upriv_command(command: DelegateCommand):
-    pass
 
+async def upriv_command(command: DelegateCommand):
+    try:
+        settings: dict = command.body["settings"]
+
+        if (not isinstance(settings, dict)):
+            await command.code(CommandCodes.InvalidTypes)
+            return
+
+    except KeyError:
+        await command.code(CommandCodes.ArgsMissing)
+        return
+
+    # Go through each command to toggle privacy settings.
+    for key, value in settings:
+        # Prefixed settings cannot be used with this command.
+        # No return necessary, since it's immediately obvious which are prefixed.
+        if (key[0] in ["$", "&", "!"]):
+            await command.code(SettingCodes.Errors.Prefixed)
+            return
+
+        # Setting does not exist: cannot private it.
+        if (key not in command.user.settings):
+            await command.code(SettingCodes.Errors.Noent, {
+                "setting": key
+            })
+
+            return
+
+        # Object format is invalid: I want a boolean value for every key.
+        if (not isinstance(value, bool)):
+            await command.code(CommandCodes.Object, {
+                "value": value
+            })
+
+            return
+
+        command.user.private_a_setting(key, value)
+
+    # Queue a user state change only after all of this bullshit has occurred.
+    command.user.queue_state_change()
+
+async def uprivwhitelist_command(command: DelegateCommand):
+    try:
+        settings: dict = command.body["settings"]
+
+        if (not isinstance(settings, dict)):
+            await command.code(CommandCodes.InvalidTypes)
+            return
+
+    except KeyError:
+        await command.code(CommandCodes.ArgsMissing)
+        return
+
+    
+    for key, value in settings:
+        # The setting specified was not private.
+        if (key not in command.user.privatesettings):
+            await command.code(SettingCodes.Errors.NotPrivate, {
+                "setting": key
+            })
+
+            return
+
+        # The value in each entry must be either a list [...] or a null/None value.
+        if (not isinstance(value, list) and not isinstance(value, NoneType)):
+            await command.code(SettingCodes.Errors.Object, {
+                "value": value
+            })
+
+            return
+
+        # Cannot delete an item that does not exist.
+        if (value == [] and key not in command.user.privatewhitelist):
+            await command.code(SettingCodes.Errors.WhiteDel, {
+                "setting": key
+            })
+
+            return
+
+        command.user.private_whitelist(key, value)
+    
+    # Queue the state change manually. See the docstring of private_whitelist.
+    command.user.queue_state_change()
 
 
 

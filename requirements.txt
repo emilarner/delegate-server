@@ -1,2 +1,3 @@
 pyopt
 pyfiglet
+blessed

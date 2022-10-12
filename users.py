@@ -41,8 +41,7 @@ setting_infos = {
     "&skeptic": SettingInfo(bool, None, False, conflicts = ["&lone"]),
     "&friendly": SettingInfo(bool, None, False),
     "&pager": SettingInfo(str, UserSettingRegulations.PagerLength, False),
-    "&pager_level": SettingInfo(int, None, False),
-    "&priv_whitelist": SettingInfo(dict, None, False)
+    "&pager_level": SettingInfo(int, None, False)
 }
 
 
@@ -64,6 +63,7 @@ def generate_user_state(creation: int, bot: bool) -> dict:
             "!subscriptionsto": [],
             "!subscriptionstome": [],
             "!privatesettings": [],
+            "!privatewhitelist": {},
             "$bot": bot,
             "perms": [],
             "!invisible": True,
@@ -75,8 +75,7 @@ def generate_user_state(creation: int, bot: bool) -> dict:
             "$status": UserStatuses.Online,
             "&pager": None,
             "&pager_level": 0,
-            "&2fa": False,
-            "&priv_whitelist": {}
+            "&2fa": False
         }
     }
 
@@ -127,11 +126,52 @@ class User:
         # We will expose them through our beautiful abstraction
         self.friends: list = self.settings["!friends"]
         self.blocked: list = self.settings["!blocked"]
+        self.friend_requests: list = self.settings["!friendreqs"]
+        
         self.channels: list = self.settings["!channels"]
         self.gchannels: list = self.settings["!gchannels"]
-        self.friend_requests: list = self.settings["!friendreqs"]
+        
         self.subscriptions: list = self.settings["!subscriptionstome"]
         self.subscriptionsto: list = self.settings["!subscriptionsto"]
+        
+        self.privatesettings: list = self.settings["!privatedsettings"]
+        self.privatewhitelist: dict = self.settings["!privatewhitelist"]
+
+
+
+
+    def private_a_setting(self, setting: str, private: bool):
+        """Set a setting as private.
+        * NOTE: you must manually queue the state change after all of the
+        iterations have finished in the command implementation code.
+        """
+
+        if (private):
+            self.privatesettings.append(setting)
+        else:
+            if (setting not in self.privatesettings):
+                return
+
+            self.privatesettings.remove(setting)
+
+        # vv would be slow if done throughout an iteration multiple times
+        #self.queue_state_change()
+
+
+    def private_whitelist(self, setting: str, whitelist: Any):
+        """Set the whitelist for private settings.
+        * NOTE: you must manually queue the state change after all of the
+        iterations have finished in the command implementation code.
+        """
+
+        if (whitelist == []):
+            del self.privatewhitelist[setting]
+
+        else:
+            self.privatewhitelist[setting] = whitelist
+
+        # vv would be slow if done throughout an iteration multiple times
+        #self.queue_state_change()
 
 
 
@@ -535,6 +575,39 @@ class Users:
             await self.change_user_settings(username, {
                 "$status": UserStatuses.Offline
             }, special = True)
+        
+
+    def are_friends(self, username1: str, username2: str) -> bool:
+        friends: list = self.get_user_settings(username1)["!friends"]
+
+        return (username2 in friends)
+
+    def is_private(self, username: str, username2: str, setting: str) -> bool:
+        private_settings: list = self.get_user_settings(username)["!privatesettings"]
+        
+        # If it's not within the private settings, then it isn't private.
+        if (setting not in private_settings):
+            return False
+
+        private_whitelist: dict = self.get_user_settings(username)["!privatewhitelist"]
+
+        # Does not have a whitelist exception
+        if (setting not in private_whitelist):
+            return True
+
+        # Username mentioned in whitelist setting        
+        if (username2 in private_whitelist[setting]):
+            return False
+
+        # Whitelist setting of null/None
+        # means they must be friends for the whitelist to apply.
+        if (private_whitelist[setting] == None):
+            if (self.are_friends(username, username2)):
+                return False
+
+
+        return True
+
         
 
 class UserDb:
