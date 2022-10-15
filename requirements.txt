@@ -1,3 +1,4 @@
 pyopt
 pyfiglet
 blessed
+websocket-client

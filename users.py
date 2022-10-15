@@ -41,7 +41,8 @@ setting_infos = {
     "&skeptic": SettingInfo(bool, None, False, conflicts = ["&lone"]),
     "&friendly": SettingInfo(bool, None, False),
     "&pager": SettingInfo(str, UserSettingRegulations.PagerLength, False),
-    "&pager_level": SettingInfo(int, None, False)
+    "&pager_level": SettingInfo(int, None, False),
+    "&2fa": SettingInfo(bool, None, False)
 }
 
 
@@ -62,16 +63,16 @@ def generate_user_state(creation: int, bot: bool) -> dict:
             "!friendreqs": [],
             "!subscriptionsto": [],
             "!subscriptionstome": [],
-            "!privatesettings": [],
+            "!privatedsettings": [],
             "!privatewhitelist": {},
             "$bot": bot,
             "perms": [],
-            "!invisible": True,
-            "!asocial": False,
-            "!friends_only": False,
-            "!lone": False,
-            "!skeptic": False,
-            "!friendly": True,
+            "&invisible": True,
+            "&asocial": False,
+            "&friends_only": False,
+            "&lone": False,
+            "&skeptic": False,
+            "&friendly": True,
             "$status": UserStatuses.Online,
             "&pager": None,
             "&pager_level": 0,
@@ -204,7 +205,13 @@ class User:
     def set_settings(self, settings: dict):
         "Set settings by an object."
 
-        self.settings.update(settings)
+        #self.settings.update(settings)
+
+        #print(settings)
+
+        for key, value in settings.items():
+            self.settings[key] = value
+
         self.queue_state_change()
 
 
@@ -506,11 +513,14 @@ class Users:
 
 
     def verify_2fa(self, username: str, code: str) -> bool:
-        udb: UserDb = UserDb(username)
+        udb: UserDb = UserDb(self.instance, username)
         secret_key = udb.get_tfa()
+
+        #print(secret_key)
+
         totp = pyotp.TOTP(secret_key)
 
-        return totp.verify(code)
+        return totp.verify(int(code))
         
 
 
@@ -668,7 +678,7 @@ class UserDb:
     def get_tfa(self) -> str:
         "Receive the 2fa secret key that the user has."
 
-        self.database.execute("SELECT 2fa FROM Users WHERE username = %s;", (self.username,))
+        self.database.execute("SELECT tfa FROM Users WHERE username = %s;", (self.username,))
         return self.database.fetchone()[0]
 
 

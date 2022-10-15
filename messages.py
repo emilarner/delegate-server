@@ -15,7 +15,7 @@ class Message:
     "A container for a Delegate message"
 
     def __init__(self, origin, username, contents, 
-                format, kind = None, created = None, uuid = None,
+                format, kind = None, created = None, _uuid = None,
                 channel = None, subchannel = None, to = None):
         
         self.username = username
@@ -25,7 +25,7 @@ class Message:
         if (uuid == None):
             self.uuid: str = str(uuid.uuid4())
         else:
-            self.uuid = uuid
+            self.uuid = _uuid
 
         self.origin = origin
         

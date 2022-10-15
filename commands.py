@@ -136,7 +136,7 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
 
     # If two-factor authentication is required and it is denied, error.
     if (command.users.has_2fa(username)):
-        if (not command.users.verify_2fa(username, tfa)):
+        if (tfa == None or not command.users.verify_2fa(username, tfa)):
             await command.connection.code(UserCodes.Errors.TwoFactorVerify)
             return
 
@@ -213,6 +213,11 @@ async def usend_command(command: DelegateCommand):
         for check in checking:
             # Every single argument above must be type 'str'
             if (not isinstance(check, str)):
+                # Format and kind can be null
+                if (check in [format, kind]):
+                    if (check == None):
+                        continue
+
                 await command.connection.code(CommandCodes.InvalidTypes)
                 return
 
@@ -235,6 +240,8 @@ async def usend_command(command: DelegateCommand):
         return 
 
     other_settings: dict = command.users.get_user_settings(to)
+
+    print("Other settings: " + str(other_settings))
 
     # Cannot message them, no matter what
     if (other_settings["&asocial"]):
@@ -340,7 +347,7 @@ async def uset_command(command: DelegateCommand):
             info: SettingInfo = users.setting_infos[key]
 
             # Test if it passed the regulations.
-            if (not info.test(existing_settings, command.connection, key, value)):
+            if (not await info.test(existing_settings, command.connection, key, value)):
                 return
 
             # Add this to the list of special settings we need to send events for
@@ -349,7 +356,8 @@ async def uset_command(command: DelegateCommand):
                 special_settings[key] = value
 
 
-            new_settings[key] = value
+        
+        new_settings[key] = value
         
     # Modify the settings and put the user on the queue.
     command.user.set_settings(new_settings)
@@ -444,7 +452,7 @@ async def upriv_command(command: DelegateCommand):
         return
 
     # Go through each command to toggle privacy settings.
-    for key, value in settings:
+    for key, value in settings.items():
         # Prefixed settings cannot be used with this command.
         # No return necessary, since it's immediately obvious which are prefixed.
         if (key[0] in ["$", "&", "!"]):
@@ -485,7 +493,7 @@ async def uprivwhitelist_command(command: DelegateCommand):
         return
 
     
-    for key, value in settings:
+    for key, value in settings.items():
         # The setting specified was not private.
         if (key not in command.user.privatesettings):
             await command.code(SettingCodes.Errors.NotPrivate, {
@@ -648,6 +656,13 @@ async def ueventquery_command(command: DelegateCommand):
     pass
 
 
+async def tfa_command(command: DelegateCommand):
+    udb: users.UserDb = users.UserDb(command.instance, command.user.username)
+
+    await command.connection.code(UserCodes.Success.TwoFactor, {
+        "secret": udb.update_2fa()
+    })
+
 # Channel Commands
 
 async def cregister_command(command: DelegateCommand):
@@ -686,7 +701,20 @@ async def cregister_command(command: DelegateCommand):
 
     
 
+async def udelete_command(command: DelegateCommand):
+    try:
+        password: str = command.body["password"]
 
+        if (not isinstance(password, str)):
+            await command.connection.code(CommandCodes.InvalidTypes)
+            return
+
+    except IndexError:
+        await command.connection.code(CommandCodes.ArgsMissing)
+        return
+    
+
+    #command.
 
 
 # A list of non-primitive commands corresponding to their function handler.
@@ -695,7 +723,10 @@ commands_list = {
     "uset": uset_command,
     "uget": uget_command,
     "frequest": frequest_command,
-    "friend": friend_command
+    "friend": friend_command,
+    "2fa": tfa_command,
+    "upriv": upriv_command,
+    "uprivwhitelist": uprivwhitelist_command
 }
 
 
