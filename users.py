@@ -109,9 +109,14 @@ class User:
         # Whether or not to continually add to the database queue.
         self.queued: bool = False
 
-        # Here is a list of active connections for live events.
+        # Here is a list of active connections
         self.connections: list = [
             connection
+        ]
+
+        # Here is a list of active connections for live event receiving.
+        self.event_connections = [
+
         ]
 
         # This is where all user settings will be stored.
@@ -327,13 +332,17 @@ class User:
         self.connections.append(connection)
 
     async def sendall(self, msg):
-        "Send a WebSockets message to all parties. [DO NOT USE ALONE!]"
+        "Send a WebSockets message to all event parties. [DO NOT USE ALONE!]"
 
-        for conn in self.connections:
-            await conn.websocket.send(msg)
+        for conn in self.event_connections:
+            try:
+                await conn.websocket.send(msg)
+            except Exception as err:
+                await self.users.user_logoff(conn, self.username, event = True)
+                
 
     async def event(self, name, body, connid = None):
-        "Send an event to all parties."
+        "Send an event to all event parties."
 
         result = {
             "event": name,
@@ -524,7 +533,7 @@ class Users:
         
 
 
-    async def add_user(self, username, connection) -> User:
+    async def add_user(self, username, connection, event = False) -> User:
         "Add a username or a connection (by username) to the pool of currently connected users."
 
         if (username not in self.users):
@@ -538,10 +547,11 @@ class Users:
             await self.change_user_settings(username, {
                 "$status": UserStatuses.Online
             }, special = True)
+
             return self.users[username]
 
 
-        self.users[username].add_connection(connection)
+        self.users[username].add_connection(connection, event)
         return self.users[username]
 
     def get_user(self, username) -> User:
@@ -564,27 +574,59 @@ class Users:
 
 
     def user_online(self, username) -> bool:
+        "Is the user online?"
+
         return (username in self.users)
 
-    async def user_logoff(self, connection, username):
+    async def user_logoff(self, connection, username, consensual = False, event = False):
+        "Log a user connection off and automatically deallocate memory if needed."
+
+        # WARNING: This section is extremely buggy.
+
         if (username not in self.users.keys()):
             raise KeyError("User is not online??!?!?!?!?!?!?!?")
 
-
-        # Send a successful logout code.
-        await connection.code(UserCodes.Success.Logout)
+        # Send a successful logout code on a consensual logout.
+        if (consensual):
+            await connection.code(UserCodes.Success.Logout)
     
 
+        #print([x._identity() for x in self.users[username].connections])
+        #print(f"Removing {connection._identity()}")
+        
         # Remove the active connection
-        self.users[username].connections.remove(connection)
+        
+        if (not event):
+            self.users[username].connections.remove(connection)
 
-        # If there are no more connections, mark the user's status as offline
+        else:
+            self.users[username].event_connections.remove(connection)
+
+
+        # Remove dead connections.
+        for connid, conn in enumerate(self.users[username].connections):
+            if (not conn.websocket.open):
+                self.users[username].connections.pop(connid)
+
+        # Remove dead event connections
+        for connid, conn in enumerate(self.users[username].event_connections):
+            if (not conn.websocket.open):
+                self.users[username].event_connections.pop(connid)
+
+
+        #self.users[username].connections.remove(connection)
+        #print([x._identity() for x in self.users[username].connections])
+
+
+        # If there are no more connections in total, mark the user's status as offline
         # then declare it a special setting, so that it will be sent as an event
         # to all subscribers and friends.
-        if (self.users[username].connections == []):
+        if ((self.users[username].connections + self.users[username].event_connections) == []):
             await self.change_user_settings(username, {
                 "$status": UserStatuses.Offline
             }, special = True)
+
+            del self.users[username]
         
 
     def are_friends(self, username1: str, username2: str) -> bool:
@@ -593,7 +635,7 @@ class Users:
         return (username2 in friends)
 
     def is_private(self, username: str, username2: str, setting: str) -> bool:
-        private_settings: list = self.get_user_settings(username)["!privatesettings"]
+        private_settings: list = self.get_user_settings(username)["!privatedsettings"]
         
         # If it's not within the private settings, then it isn't private.
         if (setting not in private_settings):

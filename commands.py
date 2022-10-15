@@ -104,17 +104,17 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
     try:
         username: str = command.body["username"]
         password: str = command.body["password"]
+        event: bool = command.body["event"]
         tfa: str = None if "2fa" not in command.body else command.body["2fa"]
 
         # Validate the types that are sent in by the client.
-        if (not type_test([username, password], [str, str]) or 
+        if (not type_test([username, password, event], [str, str, bool]) or 
             (tfa != None and not isinstance(tfa, str))):
 
             await command.connection.code(CommandCodes.InvalidTypes)
             return
 
-        
-
+    
     except KeyError:
         await command.connection.code(CommandCodes.ArgsMissing)
         return False
@@ -138,15 +138,28 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
     if (command.users.has_2fa(username)):
         if (tfa == None or not command.users.verify_2fa(username, tfa)):
             await command.connection.code(UserCodes.Errors.TwoFactorVerify)
-            return
+            return False
 
+
+    if (event):
+        # If the user isn't online, then a normal connection was never achieved!
+        if (not command.users.user_online(username)):
+            await command.connection.code(UserCodes.Errors.Event)
+            return False
+
+        user: users.User = command.users.get_user(username)
+
+        # If the number of connections equals the number of event connections
+        # Then there isn't an excess of normal connections to pair up with a new
+        # event connection.
+        if (len(user.connections) == len(user.event_connections)):
+            await command.connection.code(UserCodes.Errors.Event)
+            return False
 
     return True
 
 
 
-async def ping_command(command: DelegateCommand):
-    pass
 
 async def get_command(command: DelegateCommand):
     pass
@@ -157,9 +170,6 @@ async def notifications_command(command: DelegateCommand):
 
 async def reportmsg_command(command: DelegateCommand):
     pass
-
-
-#async def logout_command(command: DelegateCommand)
 
 
 async def user_register(command: DelegateCommand) -> bool:
@@ -240,8 +250,6 @@ async def usend_command(command: DelegateCommand):
         return 
 
     other_settings: dict = command.users.get_user_settings(to)
-
-    print("Other settings: " + str(other_settings))
 
     # Cannot message them, no matter what
     if (other_settings["&asocial"]):
@@ -722,11 +730,13 @@ commands_list = {
     "usend": usend_command,
     "uset": uset_command,
     "uget": uget_command,
+    "usubscribe": usubscribe_command,
     "frequest": frequest_command,
     "friend": friend_command,
     "2fa": tfa_command,
     "upriv": upriv_command,
-    "uprivwhitelist": uprivwhitelist_command
+    "uprivwhitelist": uprivwhitelist_command,
+    "cregister": cregister_command
 }
 
 

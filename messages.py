@@ -22,7 +22,7 @@ class Message:
         self.channel = channel
         self.subchannel = subchannel
 
-        if (uuid == None):
+        if (_uuid == None):
             self.uuid: str = str(uuid.uuid4())
         else:
             self.uuid = _uuid

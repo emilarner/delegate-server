@@ -54,6 +54,8 @@ class UserCodes:
         CantSendMessage = -116
         FriendNoent = -117
         SubscriptionError = -118
+        NotFriends = -119
+        Event = -120
 
 class ChannelCodes:
     class Success:

@@ -1,5 +1,6 @@
 import asyncio
 import websockets
+import websockets.exceptions as wes
 import json
 import psycopg2
 import traceback
@@ -27,6 +28,12 @@ class Connection:
         "An abstraction for a websocket client."
 
         self.websocket = websocket
+
+    #def _identity(self) -> str:
+    #    return self.websocket.remote_address
+
+    #def __eq__(self, another):
+    #    return self._identity == another._identity
 
     async def code(self, code: int, body: dict = {}):
         "Issue a response code to the socket in question."
@@ -150,120 +157,138 @@ class DelegateServer:
         username = None
         user = None
         authenticated = False
+        event_listener = False
 
 
         
         # Websockets has an abstraction for messages, so let's go through each of them
-        async for message in ws:
-            try:
-                command: DelegateCommand = DelegateCommand.from_json(
-                    conn, 
-                    self, 
-                    message,
-                    user
-                )
+        try:
+            async for message in ws:
+                try:
+                    command: DelegateCommand = DelegateCommand.from_json(
+                        conn, 
+                        self, 
+                        message,
+                        user
+                    )
 
-                # Quit the connection and logoff if signed in.
-                if (command.command == "quit"):
-                    if (username != None):
-                        await self.users.user_logoff(conn, username)
+                    # Quit the connection and logoff if signed in.
+                    if (command.command == "quit"):
+                        if (username != None):
+                            await self.users.user_logoff(conn, username)
 
-                    await conn.close()
-                    break
+                        await conn.close()
+                        break
 
-                # If a password is required, make sure they can't run any commands
-                # besides 'authenticate' and 'quit'
-                if (config.ServerPassword.On and not authenticated):
-                    if (command.command != "authenticate"):
-                        await conn.code(ServerCodes.Error.PasswordRequired)
-                        continue
+                    # If a password is required, make sure they can't run any commands
+                    # besides 'authenticate' and 'quit'
+                    if (config.ServerPassword.On and not authenticated):
+                        if (command.command != "authenticate"):
+                            await conn.code(ServerCodes.Error.PasswordRequired)
+                            continue
 
-                
-                # Server authentication command
-                if (command.command == "authenticate"):
-                    # The password was incorrect, so alert them of that and continue.
-                    if (not commands.authenticate_command(command)):
-                        await conn.code(ServerCodes.Error.Password)
-                        continue
                     
-                    # Authentication was a success
-                    authenticated = True
-                    continue
-
-
-
-
-                if (command.command in commands.primitive_commands):
-                    # Initial sign in
-                    if (command.command == "user"):
-                        if (user != None):
-                            await conn.code(UserCodes.Errors.AlreadySignedIn)
+                    # Server authentication command
+                    if (command.command == "authenticate"):
+                        # The password was incorrect, so alert them of that and continue.
+                        if (not commands.authenticate_command(command)):
+                            await conn.code(ServerCodes.Error.Password)
                             continue
                         
-                        # User sign in failed.
-                        if (not await commands.initial_user_signin(command)):
-                            continue
+                        # Authentication was a success
+                        authenticated = True
+                        continue
 
-                        # Add it to the collection of currently connected users
-                        # Then, give this connection a connected user. 
-                        user = await self.users.add_user(command.body["username"], conn)
-                        username = command.body["username"]
 
-                        await conn.code(UserCodes.Success.Signin)
+
+                    # If the command does not require a preexisting user sign in.
+                    if (command.command in commands.primitive_commands):
+                        # Initial sign in
+                        if (command.command == "user"):
+
+                            event: bool = command.body["event"]
+
+                            if (user != None):
+                                await conn.code(UserCodes.Errors.AlreadySignedIn)
+                                continue
+                            
+                            # User sign in failed.
+                            if (not await commands.initial_user_signin(command)):
+                                continue
+
+                            # Add it to the collection of currently connected users
+                            # Then, give this connection a connected user. 
+                            user = await self.users.add_user(
+                                command.body["username"], 
+                                conn,
+                                event = event
+                            )
+
+                            username = command.body["username"]
+
+                            await conn.code(UserCodes.Success.Signin)
+
+                            
 
                         
+                        # User registration
+                        if (command.command == "uregister"):
+                            # User registration has failed.
+                            if (not await commands.user_register(command)):
+                                continue
 
-                    
-                    # User registration
-                    if (command.command == "uregister"):
-                        # User registration has failed.
-                        if (not await commands.user_register(command)):
+                            await conn.code(UserCodes.Success.Register)
+                        
+                        continue
+
+                    # Logout
+                    if (command.command == "logout"):
+                        if (user == None):
+                            await conn.code(CommandCodes.NotSignedIn)
                             continue
 
-                        await conn.code(UserCodes.Success.Register)
-                    
-                    continue
+                        await self.users.user_logoff(conn, username, consensual = True)
+                        user = None
+                        username = None
+                        continue
 
-                # Logout
-                if (command.command == "logout"):
+
+
+                    # Command was not found
+                    if (command.command not in commands.commands_list):
+                        await conn.code(CommandCodes.NotFound)
+                        continue
+
+                    # The user must be signed in to use this command.
                     if (user == None):
                         await conn.code(CommandCodes.NotSignedIn)
                         continue
 
-                    await self.users.user_logoff(conn, username)
-                    user = None
-                    username = None
-                    continue
+                    # Call the command handler and pass in the DelegateCommand object instance.
+                    await commands.commands_list[command.command](command)
+                        
 
 
 
-                # Command was not found
-                if (command.command not in commands.commands_list):
-                    await conn.code(CommandCodes.NotFound)
-                    continue
+                # When JSON was likely not sent or was malformed (for some reason?)
+                except json.JSONDecodeError as je:
+                    await conn.code(ServerCodes.Error.JSONError)
 
-                # The user must be signed in to use this command.
-                if (user == None):
-                    await conn.code(CommandCodes.NotSignedIn)
-                    continue
+                # When an unknown or general server exception was thrown
+                except Exception as e:
+                    await conn.code(ServerCodes.Error.ServerException, {
+                        "exception": type(e).__name__,
+                        "message": str(e)
+                    })
 
-                # Call the command handler and pass in the DelegateCommand object instance.
-                await commands.commands_list[command.command](command)
-                    
+                    eprint("A server exception occured while handling a command: ")
+                    eprint(traceback.format_exc())
+        
+        except (wes.WebSocketException, wes.ConnectionClosedError, asyncio.exceptions.IncompleteReadError):
+            if (user != None):
+                await self.users.user_logoff(conn, user.username, event = event)
 
-            # When JSON was likely not sent or was malformed (for some reason?)
-            except json.JSONDecodeError as je:
-                await conn.code(ServerCodes.Error.JSONError)
-
-            # When an unknown or general server exception was thrown
-            except Exception as e:
-                await conn.code(ServerCodes.Error.ServerException, {
-                    "exception": type(e).__name__,
-                    "message": str(e)
-                })
-
-                eprint("A server exception occured while handling a command: ")
-                eprint(traceback.format_exc())
+            return
 
 
     async def main_server(self):
