@@ -205,8 +205,12 @@ class DelegateServer:
                     if (command.command in commands.primitive_commands):
                         # Initial sign in
                         if (command.command == "user"):
+                            try:
+                                event: bool = command.body["event"]
 
-                            event: bool = command.body["event"]
+                            except KeyError:
+                                await conn.code(CommandCodes.ArgsMissing)
+                                continue
 
                             if (user != None):
                                 await conn.code(UserCodes.Errors.AlreadySignedIn)
@@ -286,7 +290,7 @@ class DelegateServer:
         
         except (wes.WebSocketException, wes.ConnectionClosedError, asyncio.exceptions.IncompleteReadError):
             if (user != None):
-                await self.users.user_logoff(conn, user.username, event = event)
+                await self.users.user_logoff(conn, user.username, event = event_listener)
 
             return
 

@@ -326,10 +326,18 @@ class User:
 
         return self.settings[setting]
 
-    def add_connection(self, connection):
+    def add_connection(self, connection, event: bool):
         "Adds a connection to the pool of connections already associated with this user."
 
-        self.connections.append(connection)
+        if (event):
+            self.event_connections.append(connection)
+        else:
+            self.connections.append(connection)
+
+    def all_connections(self) -> list:
+        "Returns a combined list full of the normal and event connections."
+
+        return self.connections + self.event_connections
 
     async def sendall(self, msg):
         "Send a WebSockets message to all event parties. [DO NOT USE ALONE!]"
@@ -589,12 +597,6 @@ class Users:
         # Send a successful logout code on a consensual logout.
         if (consensual):
             await connection.code(UserCodes.Success.Logout)
-    
-
-        #print([x._identity() for x in self.users[username].connections])
-        #print(f"Removing {connection._identity()}")
-        
-        # Remove the active connection
         
         if (not event):
             self.users[username].connections.remove(connection)

@@ -19,48 +19,6 @@ def type_test(variables: list, types: list):
 
     return True
 
-# Okay, so I tried abstracting away a lot of the command sanity checking boilerplate with this.
-# But if I am to be honest, this method just looks so fucking ugly it's unbelievable.
-# If I ever get tired of writing the boilerplate, I'll use this. But until then,
-# this is fucking ugly as shit, admit it. I tend to write C-like Python code, because
-# I'm *that* kind of person. Make fun of me for using parentheses around my if-statements,
-# because I'll just keep using them...
-
-async def test_command_parameters(body: dict, parameters: list, connection) -> list:
-    results = []
-
-    # Go through each parameter in the form of (name: str, type: type, required: bool)
-    for parameter in parameters:
-        name, kind, required = parameter
-        value = None
-
-        # If it is not required, leave it as None or the actual value provided.
-        if (not required):
-            if (name in body):
-                value = body[name]
-
-        else:
-
-            # If it is required, send an error code and return None if it does not exist.
-            if (name not in body):
-                await connection.code(CommandCodes.ArgsMissing)
-                return None
-
-            value = body[name]
-
-        # If the value of the parameter is mismatching and is required
-        # (cannot have a value of None/null), send an error code and return None
-        if (not isinstance(value, kind) and required):
-            await connection.code(CommandCodes.InvalidTypes)
-            return None
-
-        results.append(value)
-
-    return results
-
-
-
-
 class DelegateCommand:
     def __init__(self, connection, instance, command, body, user):
         self.connection = connection
@@ -141,20 +99,11 @@ async def initial_user_signin(command: DelegateCommand) -> bool:
             return False
 
 
-    if (event):
-        # If the user isn't online, then a normal connection was never achieved!
-        if (not command.users.user_online(username)):
-            await command.connection.code(UserCodes.Errors.Event)
-            return False
-
-        user: users.User = command.users.get_user(username)
-
-        # If the number of connections equals the number of event connections
-        # Then there isn't an excess of normal connections to pair up with a new
-        # event connection.
-        if (len(user.connections) == len(user.event_connections)):
-            await command.connection.code(UserCodes.Errors.Event)
-            return False
+    # Must be an initial normal connection before an event connection can be
+    # achieved.
+    if (event and not command.users.user_online(username)):
+        await command.connection.code(UserCodes.Errors.Event)
+        return False
 
     return True
 

@@ -8,7 +8,13 @@ from definitions import *
 from util import *
 from config import *
 
+CHANNEL_BAN_FOREVER = 0
+CHANNEL_MUTE_FOREVER = 0
+
+
 def generate_user_field(role = "default") -> dict:
+    "This generates the blank slate for the user inside of a channel. The default role is 'default'"
+
     result = {
         "role": role,
         "settings": {
@@ -25,6 +31,11 @@ def generate_user_field(role = "default") -> dict:
     return result
 
 def generate_channel_settings(created: int, owner: str, group: bool) -> dict:
+    """
+    Generate the channel's default settings that go into the database.
+    Specify when it was created, who is the owner, and whether it is a group channel.
+    """
+
     default_channel_settings = {
         "$creation": created,
         "$owner": owner,
@@ -70,6 +81,8 @@ def generate_channel_settings(created: int, owner: str, group: bool) -> dict:
 
 
 def generate_subchannel_state():
+    "Generate the default subchannel state."
+
     result = {
         "$creation": round(time.time()),
         "$roles": {},
@@ -83,6 +96,8 @@ def generate_subchannel_state():
     return result
 
 def generate_default_channel_state(settings: dict, owner: str) -> dict:
+    "Generate the default channel state."
+
     result = {
         "auxiliary": {
             "users": {owner: generate_user_field(role = "owner")}
@@ -94,18 +109,9 @@ def generate_default_channel_state(settings: dict, owner: str) -> dict:
 
 
 
-class BannedEntity:
-    def __init__(self, username, ip):
-        self.username = username
-        self.ip = ip
-
-    def to_dict(self) -> dict:
-        return {"username": self.username, "ip": self.ip}
-
-    def __str__(self) -> str:
-        return json.dumps(self.to_dict())
-
 class ChannelPermissions:
+    "Channel permissions per the Delegate Protocol standard."
+
     Talk = "talk"
     Read = "read"
     Remove = "remove"
@@ -129,15 +135,18 @@ class Channel:
     "A Delegate channel"
 
     def __init__(self, instance, name, state: dict, channels, users):
+        # The reference to the DelegateServer class instance
         self.instance = instance
+
+        # The reference to the Users class instance within the DelegateServer instance
         self.usersinst: users.Users = instance.users
 
+        # Run of the mill initializations.
         self.name = name
         self.channels = channels
         self.usersinst = users
 
-        # Information about the channel not under
-        # the channel settings, as specified by the
+        # Information about the channel not under the channel settings, as specified by the
         # protocol.
         self.auxiliary = state["auxiliary"]
 
@@ -192,6 +201,61 @@ class Channel:
         for usr in self.userlist:
             await self.usersinst.send_event(usr, event, body)
 
+
+    async def user_event(self, username: str, event: str, body: dict):
+        "Issue an (abstract) event to a username."
+
+        await self.userlist.send_event(username, event, body)
+
+    async def ban_user(self, by: str, username: str, reason: str, duration: int):
+        # Add them to the ban list.
+        self.banned[username] = {
+            "duration": duration,
+            "reason": reason,
+            "when": round(time.time())
+        }
+
+        # Issue an event to that user, signifying that they were banned.
+        await self.usersinst.send_event(username, "banned", {
+            "channel": self.name,
+            "username": by,
+            "duration": duration,
+            "reason": reason
+        })
+
+        # Remove them from the server and alert 
+        await self.remove_user(username, circumstance = "banned")
+
+    async def kick_user(self, by: str, username: str, reason: str):
+        # Send the user the event that they have been kicked.
+        await self.user_event(username, "kicked", {
+            "channel": self.name,
+            "username": by,
+            "reason": reason
+        })
+
+        # Remove them from the server and alert 
+        await self.remove_user(username, circumstance = "kicked")
+
+    def is_banned(self, username: str) -> bool:
+        "Is the user banned from the server--unable to join?"
+        
+        # If not in the banlist, then they are immediately vindicated.
+        if (username not in self.banned):
+            return False
+
+        # Important variables for future calculations.
+        duration: int = self.banned[username]["duration"]
+        when: int = self.banned[username]["when"]
+
+        # They are still banned, so return true.
+        if (duration == CHANNEL_BAN_FOREVER or not (round(time.time()) > (duration + when))):
+            return True
+
+
+        # Their ban expired, so delete their entry and return that they are no longer banned.
+        del self.banned[username]
+        return False
 
     async def delete_channel(self):
         "Delete the channel. Permanently."
